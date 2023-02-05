@@ -132,6 +132,7 @@ typedef struct AssetData_s {
     SDL_Texture* tex_plants;
     SDL_Texture* tex_ground;
     SDL_Texture* tex_water;
+    SDL_Texture* tex_tuto;
 
     Mix_Chunk* leaves_chunks[5];
 
@@ -150,6 +151,7 @@ void asset_data_init(AssetData* asset_data, SDL_Renderer* renderer) {
     asset_data->tex_plants = load_texture(renderer, "./assets/sprites/plants.bmp", true);
     asset_data->tex_ground = load_texture(renderer, "./assets/sprites/ground.bmp", false);
     asset_data->tex_water = load_texture(renderer, "./assets/sprites/water.bmp", false);
+    asset_data->tex_tuto = load_texture(renderer, "./assets/sprites/tuto.bmp", true);
 
     asset_data->leaves_chunks[0] = Mix_LoadWAV("./assets/sfx/leaves00.wav");
     asset_data->leaves_chunks[1] = Mix_LoadWAV("./assets/sfx/leaves01.wav");
@@ -176,6 +178,7 @@ void asset_data_deinit(AssetData* asset_data) {
     SDL_DestroyTexture(asset_data->tex_ground);
     SDL_DestroyTexture(asset_data->tex_plants);
     SDL_DestroyTexture(asset_data->tex_water);
+    SDL_DestroyTexture(asset_data->tex_tuto);
 
     Mix_FreeMusic(asset_data->music_fast);
     for(int i = 0; i < 5; i++) {
@@ -208,17 +211,38 @@ void game_input_process_event(GameInput* game_input, SDL_Event e) {
             break;
         }
         break;
+    case SDL_CONTROLLERBUTTONDOWN:
+        switch (e.cbutton.button) {
+        case SDL_CONTROLLER_BUTTON_A:
+            game_input->ok = true;
+            break;
+        }
+        break;
     default:
         break;
     }
 }
 
 void game_input_process_keyboard(GameInput* game_input, const Uint8* keyboard_state) {
-    if(keyboard_state[SDL_SCANCODE_A]) {
+    if(keyboard_state[SDL_SCANCODE_A] || keyboard_state[SDL_SCANCODE_LEFT]) {
         game_input->vine_input.turn -= 1.f;
     }
-    if(keyboard_state[SDL_SCANCODE_D]) {
+    if(keyboard_state[SDL_SCANCODE_D] || keyboard_state[SDL_SCANCODE_RIGHT]) {
         game_input->vine_input.turn += 1.f;
+    }
+}
+
+void game_input_process_controller(GameInput* game_input, SDL_GameController* controller) {
+    if(!controller) {
+        return;
+    }
+
+    Sint16 value = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
+    if(value > 10000) {
+        game_input->vine_input.turn += 1.f;
+    }
+    if(value < -10000) {
+        game_input->vine_input.turn -= 1.f;
     }
 }
 
@@ -237,6 +261,8 @@ typedef struct GameData_s {
     int score;
     int best_score;
     GameState game_state;
+    bool tuto_flash;
+    float tuto_timer;
 } GameData;
 
 void game_data_init(GameData* game_data, SDL_Renderer* renderer) {
@@ -259,6 +285,9 @@ void game_data_reset(GameData* game_data, SDL_Renderer* renderer) {
     game_data->vine_go = false;
     game_data->counter = 0.f;
     game_data->score = 0;
+
+    game_data->tuto_flash = false;
+    game_data->tuto_timer = 0.f;
 
     world_generate(&game_data->world, renderer);
 }
@@ -299,8 +328,16 @@ void game_data_update(GameData* game_data, AssetData* asset_data, GameInput inpu
         }
         break;
     case GAME_STATE_Play:
-        if(input.ok) {
-            game_data->vine_go = true;
+        if(!game_data->vine_go) {
+            if(input.ok) {
+                game_data->vine_go = true;
+            }
+
+            game_data->tuto_timer += delta;
+            if(game_data->tuto_timer > 0.f) {
+                game_data->tuto_timer -= 1.f;
+                game_data->tuto_flash = !game_data->tuto_flash;
+            }
         }
 
         if(
@@ -402,6 +439,25 @@ void game_data_render(GameData* game_data, AssetData* asset_data, SDL_Renderer* 
         break;
     }
     case GAME_STATE_Play: {
+        if(!game_data->vine_go) {//render tutorial
+            int tex_w;
+            int tex_h;
+            SDL_QueryTexture(asset_data->tex_tuto, NULL, NULL, &tex_w, &tex_h);
+
+            SDL_Rect src_rect = {
+                0,
+                game_data->tuto_flash ? tex_h / 2 : 0,
+                tex_w,
+                tex_h / 2
+            };
+            SDL_Rect dest_rect = {
+                WIN_W / 2 - tex_w / 2,
+                WIN_H / 2 - tex_h / 4,
+                tex_w,
+                tex_h / 2
+            };
+            SDL_RenderCopy(renderer, asset_data->tex_tuto, &src_rect, &dest_rect);
+        }
         {//render score text
             int text_score_w;
             int text_score_h;
@@ -462,9 +518,10 @@ int main(int argc, char* argv[]) {
     (void)argv;
     srand((unsigned int)time(NULL));
 
-    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER | SDL_INIT_GAMECONTROLLER)) {
         exit(EXIT_FAILURE);
     }
+    SDL_GameControllerAddMappingsFromFile("./assets/gamecontrollerdb.txt");
 
     Mix_Init(MIX_INIT_MP3);
     Mix_OpenAudio(48000, AUDIO_S16SYS, 1, 2048);
@@ -484,7 +541,7 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if(!renderer) {
         exit(EXIT_FAILURE);
     }
@@ -499,6 +556,8 @@ int main(int argc, char* argv[]) {
     asset_data_init(&asset_data, renderer);
 
     Mix_PlayMusic(asset_data.music_fast, 1000);
+
+    SDL_GameController* main_controller = NULL;
 
     bool quit = false;
     Uint32 prev_ticks = SDL_GetTicks();
@@ -517,11 +576,19 @@ int main(int argc, char* argv[]) {
                 if(e.type == SDL_QUIT) {
                     quit = true;
                 }
+                if(e.type == SDL_JOYDEVICEADDED) {
+                    main_controller = SDL_GameControllerOpen(e.jdevice.which);
+                }
+                if(e.type == SDL_JOYDEVICEREMOVED) {
+                    SDL_GameControllerClose(SDL_GameControllerFromInstanceID(e.jdevice.which));
+                    main_controller = NULL;
+                }
                 game_input_process_event(&game_input, e);
             }
 
             const Uint8* keyboard = SDL_GetKeyboardState(NULL);
             game_input_process_keyboard(&game_input, keyboard);
+            game_input_process_controller(&game_input, main_controller);
 
             Uint32 new_ticks = SDL_GetTicks();
             float delta = (float)(new_ticks - prev_ticks) / 1000.f;
