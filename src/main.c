@@ -1,9 +1,13 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <math.h>
+#include <string.h>
+#include <time.h>
 
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_mixer.h"
+#include "SDL2/SDL_rect.h"
+#include "SDL2/SDL_render.h"
 #include "SDL2/SDL_ttf.h"
 
 #include "SDL2/SDL_video.h"
@@ -20,6 +24,8 @@
 #define MAX_SPEED 5.f
 #define SPEEDBAR_W 400
 #define SPEEDBAR_H 15
+
+#define SCOREBOARD_MAX (8)
 
 void draw_line(SDL_Renderer* renderer, HF_Line line) {
     SDL_RenderDrawLineF(
@@ -145,6 +151,10 @@ typedef struct AssetData_s {
     SDL_Texture* text_play_best_score;
 
     SDL_Texture* text_start_title;
+
+    SDL_Texture* text_won_name;
+    SDL_Texture** text_scoreboard_values;
+    SDL_Texture** text_scoreboard_names;
 } AssetData;
 
 void asset_data_init(AssetData* asset_data, SDL_Renderer* renderer) {
@@ -172,6 +182,15 @@ void asset_data_init(AssetData* asset_data, SDL_Renderer* renderer) {
 
     asset_data->text_start_title = NULL;
     update_font_texture(&asset_data->text_start_title, renderer, asset_data->font_title, "TREPADEIRA");
+
+    asset_data->text_won_name = NULL;
+
+    asset_data->text_scoreboard_names = malloc(sizeof(SDL_Texture*) * SCOREBOARD_MAX);
+    asset_data->text_scoreboard_values = malloc(sizeof(SDL_Texture*) * SCOREBOARD_MAX);
+    for (int i = 0; i < SCOREBOARD_MAX; i++) {
+        asset_data->text_scoreboard_names[i] = NULL;
+        asset_data->text_scoreboard_values[i] = NULL;
+    }
 }
 
 void asset_data_deinit(AssetData* asset_data) {
@@ -188,6 +207,15 @@ void asset_data_deinit(AssetData* asset_data) {
     SDL_DestroyTexture(asset_data->text_play_score);
     SDL_DestroyTexture(asset_data->text_play_best_score);
     SDL_DestroyTexture(asset_data->text_start_title);
+
+    for (int i = 0; i < SCOREBOARD_MAX; i++) {
+        if (asset_data->text_scoreboard_names[i]) {
+            SDL_DestroyTexture(asset_data->text_scoreboard_names[i]);
+        }
+        if (asset_data->text_scoreboard_values[i]) {
+            SDL_DestroyTexture(asset_data->text_scoreboard_values[i]);
+        }
+    }
 
     TTF_CloseFont(asset_data->font_score);
     TTF_CloseFont(asset_data->font_title);
@@ -249,7 +277,8 @@ void game_input_process_controller(GameInput* game_input, SDL_GameController* co
 typedef enum GameState_s {
     GAME_STATE_Start,
     GAME_STATE_Play,
-    GAME_STATE_Lost,
+    GAME_STATE_Won,
+    GAME_STATE_Scoreboard,
 } GameState;
 
 typedef struct GameData_s {
@@ -259,7 +288,8 @@ typedef struct GameData_s {
     float vine_speed;
     bool vine_go;
     int score;
-    int best_score;
+    int best_scores[SCOREBOARD_MAX];
+    char best_names[4][SCOREBOARD_MAX];
     GameState game_state;
     bool tuto_flash;
     float tuto_timer;
@@ -267,7 +297,9 @@ typedef struct GameData_s {
 
 void game_data_init(GameData* game_data, SDL_Renderer* renderer) {
     game_data->game_state = GAME_STATE_Start;
-    game_data->best_score = -1;
+    for (int i = 0; i < SCOREBOARD_MAX; i++) {
+        game_data->best_scores[i] = -1;
+    }
     world_init(&game_data->world, renderer, WIN_W / 2, WIN_H / 2);
 }
 
@@ -294,14 +326,49 @@ void game_data_reset(GameData* game_data, SDL_Renderer* renderer) {
 
 void game_data_update_score(GameData* game_data, AssetData* asset_data, SDL_Renderer* renderer) {
     char buff[300];
-    sprintf(buff, "PONTOS: %d", game_data->score);
+    sprintf(buff, "SCORE: %d", game_data->score);
 
     update_font_texture(&asset_data->text_play_score, renderer, asset_data->font_score, buff);
-    if(game_data->score > game_data->best_score) {
-        game_data->best_score = game_data->score;
-
-        sprintf(buff, "MELHOR: %d", game_data->best_score);
+    if(game_data->score > game_data->best_scores[0]) {
+        sprintf(buff, "BEST: %d", game_data->score);
         update_font_texture(&asset_data->text_play_best_score, renderer, asset_data->font_score, buff);
+    }
+}
+
+bool game_data_is_high_score(GameData* game_data, int new_score) {
+    for (int i = 0; i < SCOREBOARD_MAX; i++) {
+        if (new_score > game_data->best_scores[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void game_data_update_score_entry(GameData* game_data, int slot, int score, const char* name) {
+    game_data->best_scores[slot] = score;
+    strcpy(game_data->best_names[slot], name);
+}
+
+void game_data_push_score(GameData* game_data, int new_score, const char* name) {
+    if (game_data_is_high_score(game_data, new_score)) {
+        for (int i = 0; i < SCOREBOARD_MAX; i++) {
+            if (new_score > game_data->best_scores[i]) {// empurra demais scores
+                for (int j = SCOREBOARD_MAX - 1; j > i; j--) {
+                    game_data_update_score_entry(game_data, j, game_data->best_scores[j - 1], game_data->best_names[j - 1]);
+                }
+                game_data_update_score_entry(game_data, i, new_score, name);
+                break;
+            }
+        }
+    }
+}
+
+void game_data_update_scoreboard(GameData* game_data, AssetData* asset_data, SDL_Renderer* renderer) {
+    char buff[100];
+    for (int i = 0; i < SCOREBOARD_MAX; i++) {
+        update_font_texture(&asset_data->text_scoreboard_names[i], renderer, asset_data->font_score, game_data->best_names[i]);
+        sprintf(buff, "%d", game_data->best_scores[i]);
+        update_font_texture(&asset_data->text_scoreboard_values[i], renderer, asset_data->font_score, buff);
     }
 }
 
@@ -313,6 +380,9 @@ void game_data_switch_game_state(GameData* game_data, AssetData* asset_data, Gam
     case GAME_STATE_Play:
         game_data_reset(game_data, renderer);
         game_data_update_score(game_data, asset_data, renderer);
+        break;
+    case GAME_STATE_Scoreboard:
+        game_data_update_scoreboard(game_data, asset_data, renderer);
         break;
     default:
         break;
@@ -345,7 +415,12 @@ void game_data_update(GameData* game_data, AssetData* asset_data, GameInput inpu
             world_point_is_off_world(&game_data->world, game_data->vine.position) ||
             game_data->vine_speed < 0.01
         ) {
-            game_data_switch_game_state(game_data, asset_data, GAME_STATE_Start, renderer);
+            if (game_data_is_high_score(game_data, game_data->score)) {
+                game_data_switch_game_state(game_data, asset_data, GAME_STATE_Won, renderer);
+            }
+            else {
+                game_data_switch_game_state(game_data, asset_data, GAME_STATE_Scoreboard, renderer);
+            }
         }
 
         bool in_bubble = world_point_is_in_bubble(&game_data->world, vine_next_point(&game_data->vine));
@@ -378,6 +453,17 @@ void game_data_update(GameData* game_data, AssetData* asset_data, GameInput inpu
 
         float turn_value = in_bubble ? 1.2f : 3.5f;
         vine_process_input(&game_data->vine, input.vine_input, turn_value, delta);
+        break;
+    case GAME_STATE_Won:
+        if(input.ok) {
+            game_data_push_score(game_data, game_data->score, "AAA");
+            game_data_switch_game_state(game_data, asset_data, GAME_STATE_Scoreboard, renderer);
+        }
+        break;
+    case GAME_STATE_Scoreboard:
+        if(input.ok) {
+            game_data_switch_game_state(game_data, asset_data, GAME_STATE_Start, renderer);
+        }
         break;
     default:
         break;
@@ -505,6 +591,28 @@ void game_data_render(GameData* game_data, AssetData* asset_data, SDL_Renderer* 
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
             SDL_RenderDrawRect(renderer, &bar_rect);
             SDL_RenderFillRect(renderer, &filled_rect);
+        }
+        break;
+    }
+    case GAME_STATE_Scoreboard:
+    {
+        int spacing = 40;
+        int scoreboard_h = (SCOREBOARD_MAX - 1) * spacing;
+        int scoreboard_w = 120;
+        for (int i = 0; i < SCOREBOARD_MAX; i++) {
+            if (game_data->best_scores[i] > -1) {
+                int tex_w;
+                int tex_h;
+                SDL_QueryTexture(asset_data->text_scoreboard_names[i], NULL, NULL, &tex_w, &tex_h);
+
+                SDL_Rect rect_name = {
+                    WIN_W / 2 - scoreboard_w / 2,
+                    WIN_H / 2 - scoreboard_h - tex_h / 2,
+                    tex_w,
+                    tex_h
+                };
+                SDL_RenderCopy(renderer, asset_data->text_scoreboard_names[i], NULL, &rect_name);
+            }
         }
         break;
     }
