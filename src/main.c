@@ -1,15 +1,15 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_mixer.h"
 #include "SDL2/SDL_ttf.h"
 
+#include "SDL2/SDL_video.h"
 #include "hf_vec.h"
 #include "hf_line.h"
 #include "hf_triangle.h"
-#include "hf_circle.h"
-#include "hf_intersection.h"
 
 #include "vine.h"
 #include "world.h"
@@ -535,7 +535,7 @@ int main(int argc, char* argv[]) {
         SDL_WINDOWPOS_UNDEFINED,
         WIN_W,
         WIN_H,
-        SDL_WINDOW_SHOWN
+        SDL_WINDOW_FULLSCREEN
     );
     if(!window) {
         exit(EXIT_FAILURE);

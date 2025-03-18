@@ -45,10 +45,16 @@ target_link_libraries(${MY_PROJECT_NAME} PUBLIC SDL2_mixer)
 target_link_directories(${MY_PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/lib/sdl_ttf)
 target_link_libraries(${MY_PROJECT_NAME} PUBLIC SDL2_ttf)
 
+if(NOT WIN32)
+	target_link_libraries(${MY_PROJECT_NAME} PUBLIC m)
+endif()
+
 #copy sdl dlls to executable path
-file(COPY ${CMAKE_SOURCE_DIR}/lib/sdl/SDL2.dll DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-file(COPY ${CMAKE_SOURCE_DIR}/lib/sdl_mixer/SDL2_mixer.dll DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-file(COPY ${CMAKE_SOURCE_DIR}/lib/sdl_ttf/SDL2_ttf.dll DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+if(WIN32)
+	file(COPY ${CMAKE_SOURCE_DIR}/lib/sdl/SDL2.dll DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+	file(COPY ${CMAKE_SOURCE_DIR}/lib/sdl_mixer/SDL2_mixer.dll DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+	file(COPY ${CMAKE_SOURCE_DIR}/lib/sdl_ttf/SDL2_ttf.dll DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+endif()
 
 #copy all resources
 file(REMOVE_RECURSE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets)

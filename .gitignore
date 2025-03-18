@@ -36,6 +36,7 @@
 [Bb]uild
 
 # CMake
+.cache
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles
